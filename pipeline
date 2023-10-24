@@ -1,0 +1,70 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Azure.WebJobs;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using Microsoft.Extensions.Logging;
+using System.Net.Http;
+using System.Net;
+using System.Threading.Tasks;
+using System;
+using System.Linq;
+using Newtonsoft.Json;
+using Microsoft.Extensions.Configuration;
+ 
+namespace POCMongodbApp
+{
+    public class MongoDBErrorReports
+    {
+        [FunctionName("MongoDBErrorReports")]
+        public static async Task<IActionResult> Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            try
+            {
+                // Initialize MongoDB connection settings
+                string connectionString = Environment.GetEnvironmentVariable("MongoDBConnectionString");
+                string databaseName = Environment.GetEnvironmentVariable("DatabaseName");
+                string collectionName = Environment.GetEnvironmentVariable("CollectionName");
+ 
+                var client = new MongoClient(connectionString);
+                var database = client.GetDatabase(databaseName);
+                var collection = database.GetCollection<BsonDocument>(collectionName);
+ 
+                // Assuming startDateStr and endDateStr are retrieved from query parameters
+                string startDateStr = req.Query["startdate"];
+                string endDateStr = req.Query["enddate"];
+ 
+                // Convert provided start and end date strings to DateTime objects
+                if (!DateTime.TryParse(startDateStr, out DateTime startDateUtc) ||
+                    !DateTime.TryParse(endDateStr, out DateTime endDateUtc))
+                {
+                    return new BadRequestObjectResult("Invalid date format or missing parameters.");
+                }
+ 
+                // Fetch documents from MongoDB
+                var filter = Builders<BsonDocument>.Filter.Gte("Time", startDateUtc) & Builders<BsonDocument>.Filter.Lt("Time", endDateUtc);
+                var sort = Builders<BsonDocument>.Sort.Descending("Time");
+                var documents = await collection.Find(filter).Sort(sort).ToListAsync();
+ 
+                // Serialize the fetched documents to JSON
+                string responseMessage = JsonConvert.SerializeObject(documents);
+ 
+                return new OkObjectResult(responseMessage);
+            }
+            catch (Exception ex)
+            {
+                // Handle exceptions
+                log.LogError(ex, "An error occurred while processing the request.");
+                var response = new HttpResponseMessage(HttpStatusCode.InternalServerError);
+                response.Content = new StringContent($"An error occurred: {ex.Message}");
+                return new ObjectResult(response.Content) { StatusCode = (int)response.StatusCode };
+            }
+        }
+    }
+}
+
+
+functionapp.cs
